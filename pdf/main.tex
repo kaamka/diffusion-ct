@@ -6,7 +6,7 @@
 % images
 \usepackage{graphicx} 
 \usepackage{float}
-\usepackage{polski}
+\usepackage{polski} % TODO remove it before final compilation (without it there is an error)
 \graphicspath{ {./images/} }
 
 \usepackage{amsmath}
@@ -118,7 +118,7 @@ The idea behind reverse diffusion process is to undo the forward process and rem
 \[p_\theta(x_{t-1}|x_t) = N(x_{t-1};\mu_\theta(x_t, t), \Sigma_\theta(x_t,t))\]
 In our case variance is known so: $\Sigma_\theta(x_t,t)=\bar{\beta_t}$.
 
-To train the network we need loss function, which is defined as negative log-likelihood: $-log(p_\theta(x_0))$. However it is not easily computable, because $p_\theta(x_0)$ depends on the whole Markov chain. The solution is to use variational lower bound of the function:
+To train the network loss function is required, which is defined as negative \break log-likelihood: $-log(p_\theta(x_0))$. However it is not easily computable, because $p_\theta(x_0)$ depends on the whole Markov chain. The solution is to use variational lower bound of the function:
 \[-log(p_\theta(x_0)) \le -log(p_\theta(x_0)) + D_{KL}(q(x_{1:T}|x_0)||p_\theta(x_{1:T}|x_0))\]
 $D_{KL}$ is KL divergences. The equation can be simplified \cite{ImprovedDDPM} and it will result in loss function: $L=||\epsilon - \epsilon_\theta(x_t, t)||^2$, which is just mean square error of applied noise and predicted noise.
 
@@ -150,7 +150,7 @@ Input of multi-headed attetion block is:
 \end{itemize}
 All of these values are the same at the beginning.
 
-In essence, the attention mechanism computes scores by comparing the query with keys. These scores reflect how much attention each element deserves. Then, these scores are used to blend the values together, forming an output representation that captures the essence of the input sequence. \cite{AttentionIsAll} \cite{AttentionWiki}\ cite{TransformersWiki}
+In essence, the attention mechanism computes scores by comparing the query with keys. These scores reflect how much attention each element deserves. Then, these scores are used to blend the values together, forming an output representation that captures the essence of the input sequence. \cite{AttentionIsAll} \cite{AttentionWiki} \cite{TransformersWiki}
 
 \chapter{Implementation of the model}
 This chapter will present the details of the project implementation: description of the development environment and the tools used during development. It will also describe dataset, implementation of the model and some details of selected aspects of the project.
@@ -169,9 +169,9 @@ PyTorch is an open-source machine learning framework that is used for developing
 \subsection{Monai}
 MONAI (Medical Open Network for AI) is an open-source framework built on PyTorch, designed exclusively for deep learning in medical imaging. It simplifies tasks like data handling, model creation, training, and deployment for medical image analysis. MONAI focuses on challenges unique to this domain, making it easier to develop and deploy AI models for tasks connected with healthcare. \cite{Monai}
 \subsection{Huggingface diffusers}
-Diffusers is an open-source library based on PyTorch. It offers framework for building UNet models and a lot of functionality used during training like noise scheduler. It also offers pre-trained networks and much more. The library is modular, which allows creating custom models and training pipelines. The library is easy to use and has good documentation. \cite{Hf_diffusers}
+Diffusers is an open-source library based on PyTorch. It offers framework for building U-Net models and a lot of functionality used during training like noise scheduler. It also offers pre-trained networks and much more. The library is modular, which allows creating custom models and training pipelines. The library is easy to use and has good documentation. \cite{Hf_diffusers}
 \subsection{Hardware}
-Throughout the project, Nvidia Titan RTX GPU was used, equipped with 24GB of memory for the training and testing of networks. This GPU is compatible with CUDA, a platform that allows general-purpose computing on the GPU, and it is integrated into Pytorch. The primary constraint we encountered was related to memory limitations, primarily because of the extensive data.
+Throughout the project, Nvidia Titan RTX GPU was used, equipped with 24GB of memory for the training and testing of networks. This GPU is compatible with CUDA, a platform that allows general-purpose computing on the GPU, and it is integrated into Pytorch.
 \section{Implementation}
 The source code is available at the link below:
 \newline
@@ -258,16 +258,18 @@ The dataset contain a collection of 28 high-resolution computer tomography (CT) 
 
 These CT images grant a precise and detailed view of the prostate gland and its encompassing structures. The hand-trimming process has thoughtfully excluded irrelevant details and unrelated areas, leaving only a focused representation.
 
-All images in this dataset adhere to a standardized dimension of 512 pixels by 512 pixels, presented across 26 individual slices. This 3D arrangement permits a comprehensive examination of the prostate from various perspectives and depths. The uniform image size and multiplicity of slices contribute to a thorough analysis and a more precise understanding of the prostate's configuration and potential discrepancies.
+All scans in this dataset adhere to a standardized dimension of 512 pixels by 512 pixels, presented across 26 individual slices. This 3D arrangement permits a comprehensive examination of the prostate from various perspectives and depths. The uniform image size and multiplicity of slices contribute to a thorough analysis and a more precise understanding of the prostate's configuration and potential discrepancies.
 
 \begin{figure}[H]
 	\centering
 	\includegraphics[scale=0.5]{images/datasetExample}
     \caption{Example from dataset}
 \end{figure}
-The dataset underwent a random partitioning procedure, resulting in the creation of two distinct subsets: a training dataset and a validation dataset. This division was executed in an 80-20 ratio, leading to a training subset comprising 23 images and a validation subset containing 5 images.
+The dataset underwent a random partitioning procedure, resulting in the creation of two distinct subsets: a training dataset and a validation dataset. This division was executed in an 80-20 ratio, leading to a training subset comprising 23 scans and a validation subset containing 5 scans.
 
 Furthermore, to enhance the dataset's diversity and training potential, augmentation techniques were applied. Random zoom and flilp operations were employed to augment the data. These augmentation methods introduce variations in scale and orientation, contributing to a more comprehensive and versatile dataset. The incorporation of such augmented data aids in training models that are better equipped to handle a wider range of real-world scenarios and variations.
+
+Ultimately, all CT images were resized to 256 by 256 pixels, a necessary adjustment due to the limitations of GPU memory.
 
 
 \chapter{Results}
