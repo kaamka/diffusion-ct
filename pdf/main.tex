@@ -6,6 +6,7 @@
 % images
 \usepackage{graphicx} 
 \usepackage{float}
+\usepackage{polski}
 \graphicspath{ {./images/} }
 
 \usepackage{amsmath}
@@ -13,11 +14,46 @@
 \usepackage[utf8]{inputenc}
 \usepackage[margin=3.5cm]{geometry}
 
+%% ########################################################
 \begin{document}
 \thispagestyle{empty}
+\begin{center}
+\includegraphics[width=\textwidth]{logo_AGH.jpg}\\
+\bf{\sf{WYDZIAŁ FIZYKI I INFORMATYKI STOSOWANEJ}}\\[5mm]
+%% ======================================================
+\bf{\sf{KATEDRA ODDZIAŁYWAŃ I DETEKCJI CZĄSTEK}}\\[14mm]
+%% ======================================================
+\sf{\huge Praca dyplomowa}\\[12mm] 
+%% ======================================================
+\sf{\Large First application of the diffusion and transformer models for medical CT scans analysis in scope of MonAI platform \\[2mm] 
+Pierwsze zastosowanie modeli dyfuzyjnych i modeli typu transformer do analizy medycznych skanów tomografii komputerowej w ramach platformy MonAI \\[2mm]
+%% ======================================================
+%% W przypadku pracy napisanej
+%% - po polsku: dwa tytuły,
+%% - po angielsku: dwa tytuły,
+%% - po hiszpańsku/niemiecku/rosyjsku/etc: trzy tytuły.
+%% ======================================================
+}
+\vspace{40mm}
+\end{center}
+\sf{
+\begin{tabular}{l l}
+Autor: & Piotr Harmuszkiewicz \\
+Kierunek studiów: &	Informatyka Stosowana\\
+Opiekun pracy: & prof. dr hab. inż. Tomasz Szumlak\\
+\end{tabular}
+}\\[10mm]
+\begin{center}
+\sf{Kraków, 2023}
+\end{center}
 
+%% ########################################################
 \newpage
+%% ########################################################
 
+\subsubsection{Acknowledgement}
+I would like to express gratitude to Zuzanna Harmuszkiewicz for providing me with valuable advice and insight on the topic of my thesis and for taking time to read and review my work.
+\newpage
 \tableofcontents
 \chapter{Goals and motivation of the thesis.}
 This graduation thesis aimed to develop a diffusion model able to generate new medical CT scans and perform quality analysis of obtained results. The motivation for the implementation of the project was solving the problem of insufficient amount of training data, required for different machine learning solutions used in medical field. 
@@ -58,7 +94,7 @@ $\beta_t$ is constant increased with step $t$ according to variance schedule, li
     \caption{Example of Markov chain for image \cite{DDPM}}
 \end{figure}
 
-\subsubsection{Reparameterization trick}
+\subsection{Reparameterization trick} %% TODO maybe subsubsection
 The basic idea of the reparameterization trick is to express a random variable sampled from a certain distribution as a deterministic function of a separate random variable and a fixed parameter. This reparameterization allows for the separation of the randomness in the model from the gradient computations, which makes the optimization process more stable. Instead of directly sampling from the distribution (usually a Gaussian), we sample from a standard Gaussian distribution (mean=0, variance=1) and then transform this sample using the learned mean and variance parameters. 
 Mathematically, we can denote the random variable as $z$ and its distribution as $q(z|x)$, the trick involves representing $z$ as:
 \[z=\mu + \sigma \odot \epsilon,\]
@@ -95,6 +131,7 @@ $D_{KL}$ is KL divergences. The equation can be simplified \cite{ImprovedDDPM} a
 \section{Attention}
 Attention, in the context of machine learning and natural language processing, is a mechanism that allows models to focus on specific parts of input data while making predictions or generating output. The concept of attention draws inspiration from human cognitive processes, where we naturally pay varying degrees of attention to different parts of information when processing it. Attention mechanisms are particularly useful in tasks where the model needs to consider different parts of input data with varying levels of importance or relevance.
 
+\subsection{Attention block}
 To use this mechanism we need to implement  an attention block. An attention block is a component in neural network architectures that implements an attention mechanism. It is one of the building blocks used in diffusion model. The attention block typically takes in a set of input representations and computes attention weights to emphasize the importance of different elements within the input. These elements could be words in a sentence, pixels in an image, or any other kind of structured data. The attention weights are then used to compute a weighted sum of the input representations, resulting in an enriched representation that captures contextual information and relationships between elements.
 
 \begin{figure}[H]
@@ -133,6 +170,8 @@ PyTorch is an open-source machine learning framework that is used for developing
 MONAI (Medical Open Network for AI) is an open-source framework built on PyTorch, designed exclusively for deep learning in medical imaging. It simplifies tasks like data handling, model creation, training, and deployment for medical image analysis. MONAI focuses on challenges unique to this domain, making it easier to develop and deploy AI models for tasks connected with healthcare. \cite{Monai}
 \subsection{Huggingface diffusers}
 Diffusers is an open-source library based on PyTorch. It offers framework for building UNet models and a lot of functionality used during training like noise scheduler. It also offers pre-trained networks and much more. The library is modular, which allows creating custom models and training pipelines. The library is easy to use and has good documentation. \cite{Hf_diffusers}
+\subsection{Hardware}
+Throughout the project, Nvidia Titan RTX GPU was used, equipped with 24GB of memory for the training and testing of networks. This GPU is compatible with CUDA, a platform that allows general-purpose computing on the GPU, and it is integrated into Pytorch. The primary constraint we encountered was related to memory limitations, primarily because of the extensive data.
 \section{Implementation}
 The source code is available at the link below:
 \newline
@@ -172,7 +211,7 @@ Downsample and upsample blocks are simple blocks that reduce or recover dimensio
     \caption{Downsample and upsample block architecture diagram}
 \end{figure}
 
-The modules above were used to build the more complex ones which are presented below. The modules below modules have two inputs or outputs depending on whether they are up or down. The output from the down blocks are directly connected with the input from up blocks.
+The modules above were used to build the more complex ones which are presented below. The modules below have two inputs or outputs depending on whether they are up or down. The output from the down blocks are directly connected with the input from up blocks.
 \subsection{Resnet downsample and upsample}
 These modules use resnet blocks and downsample or upsample blocks.
 \begin{figure}[H]
@@ -197,9 +236,22 @@ Mid block is responsible for processing latent space. In this case latent space 
 \end{figure}
 
 \subsection{Network architecture}
-TODO
+U-Net model is an architecture used in image generation. It has an encoder to capture features, a bottleneck for extraction, and a decoder for image generation. The model has additional skip connetions between encoder and decoder which help preserve fine details.
+\begin{figure}[H]
+	\centering
+	\includegraphics[scale=0.5]{images/ModelGraph.drawio}
+    \caption{Network architecture}
+\end{figure}
 \subsection{Training parameters}
-TODO elarning rate, batch size, num of epochs itp.
+\subsubsection{Batch size}
+In consideration of both the constraints posed by GPU memory limitations and the dataset's size, the decision was made to set the batch size to one.
+\subsubsection{Learning rate}
+A range of values, spanning from $10^{-7}$ to $3\cdot10^{-4}$, were systematically tested. It was observed that lower values within this range led to a slower learning pace and generated scans with considerably more noise. Conversely, as the values increased, the model's performance improved, with larger values yielding better results. However, it became evident that once the threshold of approximately $2\cdot10^{-4}$ was crossed, the model's stability during training became compromised, often becoming trapped in local minima.
+
+In light of these findings, a careful evaluation led to the selection of the optimal value, which was determined to be $10^{-4}$. This value struck a balance between achieving satisfactory results and maintaining training stability, making it the most suitable choice.
+\subsubsection{Number of epochs}
+The number of epochs was established at 2000 due to the observation that the model's loss reached a plateau at this juncture, and further training did not yield any substantial improvements in results.
+
 
 \section{Dataset}
 The dataset contain a collection of 28 high-resolution computer tomography (CT) images that center on the prostate region. Each image has undergone meticulous hand-trimming to retain solely the pertinent anatomical features. This process results in a dataset that accentuates the vital elements essential for accurate interpretation.
@@ -211,7 +263,7 @@ All images in this dataset adhere to a standardized dimension of 512 pixels by 5
 \begin{figure}[H]
 	\centering
 	\includegraphics[scale=0.55]{images/datasetExample}
-    \caption{Example from dataset TODO change to 26 slices instead of 32}
+    \caption{Example from dataset}
 \end{figure}
 The dataset underwent a random partitioning procedure, resulting in the creation of two distinct subsets: a training dataset and a validation dataset. This division was executed in an 80-20 ratio, leading to a training subset comprising 23 images and a validation subset containing 5 images.
 
@@ -222,31 +274,54 @@ Furthermore, to enhance the dataset's diversity and training potential, augmenta
 This chapter will present the outcomes study involving generative neural networks tasked with generating realistic CT scans. The aim of this investigation was to evaluate the network's ability to produce accurate and visually coherent medical images.
 
 \section{Loss}
-TODO
+\begin{figure}[H]
+	\centering
+	\includegraphics[scale=0.6]{images/loss}
+    \caption{Loss history graph}
+\end{figure}
+Because of a relatively high learning rate, the graph shown above lacks clarity. To enhance its visibility, we calculate the average for every 10 epochs, resulting in a more visually accessible representation.
+\begin{figure}[H]
+	\centering
+	\includegraphics[scale=0.6]{images/loss_10}
+    \caption{Average loss history graph}
+\end{figure}
+Both graphs utilize a logarithmic scale to display the training and test data loss. An observation drawn from these graphs suggests that the loss has reached a plateau, indicating that further training is unlikely to yield significant improvements in results.
 
+\section{Generated CT scans}
+\subsection{Examples}
 \begin{figure}[H]
 	\centering
 	\includegraphics[scale=0.55]{images/generatedData1}
-    \caption{CT scan generated by the model TODO change for better version}
+    \caption{CT scan generated by the model}
 \end{figure}
 \begin{figure}[H]
 	\centering
 	\includegraphics[scale=0.55]{images/generatedData2}
-    \caption{CT scan generated by the model TODO change for better version}
+    \caption{CT scan generated by the model}
+\end{figure}
+\begin{figure}[H]
+	\centering
+	\includegraphics[scale=0.55]{images/generatedData3}
+    \caption{CT scan generated by the model}
 \end{figure}
 
-\subsubsection{Visual Realism and Quality}
+\subsection{Visual Realism and Quality}
 Upon visual inspection, the generated CT scans exhibit a good level of realism and quality. Anatomical structures such as the prostate, bladder, and surrounding tissues are accurately portrayed, with textures and contrasts resembling those observed in actual CT scans. The model successfully captures the complex spatial relationships and proportions of anatomical structure.
-\subsubsection{Variability and Diversity}
+\subsection{Variability and Diversity}
 The network demonstrates proficiency in generating diverse images. It produces a spectrum of anatomical variations, encompassing different organ sizes, shapes, and orientations.
-\subsubsection{Comparison to original data}
-Comparing the generated CT images with their corresponding original counterparts reveals nuanced differences in various aspects. While the generated images bear a striking resemblance to the original CT scans in terms of anatomical structures and general features, there are certain distinctions worth noting. Notably, the generated CT images tend to exhibit slightly contrast levels in comparison to the originals, which could impact the visual clarity of certain structures. Additionally, a subtle increase in noise is observed in some of the generated images, which could potentially affect the interpretability of finer details. Furthermore, in some instances, the generated images may portray tissue textures that appear somewhat unnatural, suggesting room for improvement in capturing the intricate subtleties present in actual medical images.
+\subsection{Comparison to original data}
+Comparing the generated CT images with their corresponding original counterparts reveals nuanced differences in various aspects. While the generated images bear a striking resemblance to the original CT scans in terms of anatomical structures and general features, there are certain distinctions worth noting. Notably, the generated CT images tend to exhibit slightly lower contrast levels in comparison to the originals, which could impact the visual clarity of certain structures. Additionally, a subtle increase in noise is observed in some of the generated images, which could potentially affect the interpretability of finer details. Furthermore, in some instances, the generated images may portray tissue textures that appear somewhat unnatural, suggesting room for improvement in capturing the intricate subtleties present in actual medical images.
 
 
 \section{Limitations}
-TODO
+
+The current output of the model generates scans with a resolution of 256 by 256 pixels. However, it is important to note that this resolution is not enough to declare the generated samples have high quality. The limitation in resolution is primarily attributed to two key factors. First, there are constraints imposed by the available GPU memory, which dictates the practical upper limit for training process. Second, the underlying dataset itself has a resolution of 512 by 512 pixels. Consequently, the model is working within these constraints, resulting in the current resolution output.
+
+Furthermore, it's worth emphasizing that evaluating the quality of these generated samples is a complex and require medical knowledge. The intricacies of medical imaging might only be evident to experts.
 \section{Future Directions}
-Future research endeavors could explore refining the network architecture for enhanced in image quality and anatomical accuracy. Other augmentation techniques can be used and expanding the study to larger datasets could further enrich the generative capabilities. Additionally, the model can be trained on datasets with different organs to check the performance in slightly different task.
+The next logical move would be to attempt generating higher-resolution samples by using multiple GPUs.
+
+Future research endeavors could explore refining the network architecture for enhanced in image quality and anatomical accuracy. Expanding the study to larger datasets could further enrich the generative capabilities. Additionally, the model can be trained on datasets with different organs to check the performance in slightly different task.
 
 \addcontentsline{toc}{chapter}{\protect\numberline{}Bibliographic}
 \begin{thebibliography}{99}
@@ -258,9 +333,38 @@ Future research endeavors could explore refining the network architecture for en
 \bibitem{ImprovedDDPM}
 \url{https://arxiv.org/pdf/2102.09672.pdf}
 
+\bibitem{diffBeatGan}
+\url{https://arxiv.org/pdf/2105.05233.pdf}
+
+\bibitem{HighResImageSyntesis}
+\url{https://arxiv.org/pdf/2112.10752.pdf}
+
+\bibitem{TextToImage}
+\url{https://arxiv.org/pdf/2205.11487.pdf}
+  
 \bibitem{lw_diffusion}
 \url{ https://lilianweng.github.io/posts/2021-07-11-diffusion-models/}
-  
+
+\bibitem{vaeLogLikelihhod}
+\url{https://arxiv.org/pdf/2206.09453.pdf}
+
+\bibitem{diffusionWiki}
+\url{https://en.wikipedia.org/wiki/Diffusion_model}
+
+\bibitem{vaeWiki}
+\url{https://en.wikipedia.org/wiki/Variational_autoencoder}
+
+\bibitem{unetSegmentation}
+\url{https://arxiv.org/pdf/1505.04597v1.pdf}
+
+\bibitem{unetWiki}
+\url{https://en.wikipedia.org/wiki/U-Net}
+
+\bibitem{stableDiffusionGithub}
+\url{https://github.com/CompVis/stable-diffusion}
+
+\bibitem{latentDiffModel}
+\url{https://ommer-lab.com/research/latent-diffusion-models/}
 
 \bibitem{convolution}
 Ian Goodfellow and Yoshua Bengio and Aaron Courville, Deep Learning, 2015
@@ -289,6 +393,9 @@ Analysis of the quality of CT medical data generation using a pre-trained GAN mo
   
 \bibitem{Hf_diffusers}
 \url{https://huggingface.co/docs/diffusers/index}
+
+\bibitem{Hf_diffusers_gh}
+\url{https://github.com/huggingface/diffusers}
 
 \bibitem{Resnet}
 \url{https://en.wikipedia.org/wiki/Residual_neural_network}
