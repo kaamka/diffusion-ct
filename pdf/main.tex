@@ -128,6 +128,9 @@ $D_{KL}$ is KL divergences. The equation can be simplified \cite{ImprovedDDPM} a
     \caption{Example of reverse diffusion process for image \cite{DDPM}}
 \end{figure}
 
+\subsection{Position embedding}
+Given that the neural network shares parameters across the entire Markov chain, we have the option to provide the model with additional information regarding its position within the Markov chain. This can be achieved in two ways: either by introducing a separate argument or by adopting a method similar to how transformers handle it, which involves using position embedding. Position embedding operates by assigning a unique vector representation to each step in the sequence, based on sine and cosine functions. This results in distinct embeddings for various positions. When these positional embeddings are integrated into the input data, the model gains the capability to simultaneously consider both the content of the elements and their positions in the sequence. This enhancement significantly improves the model's ability to effectively comprehend and process data and to be aware of the specific noise level it is currently processing. \cite{positionEmbedding_hf} \cite{AttentionIsAll}
+
 \section{Attention}
 Attention, in the context of machine learning and natural language processing, is a mechanism that allows models to focus on specific parts of input data while making predictions or generating output. The concept of attention draws inspiration from human cognitive processes, where we naturally pay varying degrees of attention to different parts of information when processing it. Attention mechanisms are particularly useful in tasks where the model needs to consider different parts of input data with varying levels of importance or relevance.
 
@@ -375,6 +378,9 @@ Future research endeavors could explore refining the network architecture for en
 \bibitem{convolution}
 Ian Goodfellow and Yoshua Bengio and Aaron Courville, Deep Learning, 2015
 \url{https://www.deeplearningbook.org/}
+
+\bibitem{positionEmbedding_hf}
+\url{https://huggingface.co/blog/annotated-diffusion}
 
 \bibitem{AttentionIsAll}
 \url{https://arxiv.org/pdf/1706.03762.pdf}
