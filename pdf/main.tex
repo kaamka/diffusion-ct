@@ -56,7 +56,7 @@ I would like to express gratitude to Zuzanna Harmuszkiewicz for providing me wit
 \newpage
 \tableofcontents
 \chapter{Goals and motivation of the thesis.}
-This graduation thesis aimed to develop a diffusion model able to generate new medical CT scans and perform quality analysis of obtained results. The motivation for the implementation of the project was solving the problem of insufficient amount of training data, required for different machine learning solutions used in medical field. 
+This master thesis aimed to prepare a diffusion model able to generate new medical CT scans and perform quality analysis of obtained results. The motivation for the implementation of the project was solving the problem of insufficient amount of training data, required for different machine learning solutions used in medical field. 
 The first chapter is an introduction to the study, explaining the goal and motivation of the project. 
 Next chapter contains theoretical foundations, the chapter covers essential concepts like diffusion models and attention. 
 In the third chapter the implementation of the project was explained, detailing the project environment, model architecture, training process and dataset.
@@ -65,7 +65,7 @@ The final chapter presents the outcomes, which are analyzed in terms of – visu
 \chapter{Theoretical Basis}
 
 \section{Convolutional neural networks}
-Convolutional neural networks (CCN) are type of neural network that are suited for grid-like data (e.g. images, which are two dimensional grid of pixels). CNNs use mathematical operation: convolution that combines two functions to produce third function. In machine learning we usually use kernel, which is small matrix. The kernel is moved along and across input data and applying kernel results in matrix, which is called feature map. The values of kernels are trainable neural network's parameters.
+A convolutional neural network (CCN) is a type of deep neural model that is suited for grid-like data (e.g. images, which are two dimensional grid of pixels). CNNs use a mathematical operation called convolution that combines two functions to produce third function. In machine learning we usually use kernel, which is a small matrix. The kernel is moved in horizontal and vertical direction over the input data and applying kernel results in matrix, which is called feature map. The values of kernels are trainable neural network's parameters.
 \cite{convolution} \cite{Michal}
 
 \begin{figure}[H]
@@ -75,23 +75,23 @@ Convolutional neural networks (CCN) are type of neural network that are suited f
 \end{figure} 
 
 \section{Generative models}
-Generative models are type of algorithms that aims to create new examples similar to data from dataset. Generative models learn probability distribution of training dataset and are able to generate complicated data based on this distribution.
+Generative models are type of algorithms that aim at creating new examples similar to data from dataset. Generative models learn probability distribution of training dataset and are able to generate complicated data based on this distribution.
 \section{Diffusion models}
-Diffusion models are type of generative models, that aims to model distribution of data from a given dataset. They use Markov chain, which represent sequence of steps in which small random noise is added to data and then model learns to gradually reverse diffusion steps. Diffusion model contains two components: forward diffusion process and reverse diffusion process.
+Diffusion models are type of generative models, that aim at modelling distribution of data from a given dataset. They use Markov chain, which represent sequence of steps in which small random noise is added to data and then model learns to gradually reverse diffusion steps. Diffusion model contains two components: forward diffusion process and reverse diffusion process.
 
 \subsection{Forward diffusion process}
-During forward diffusion process we define Markov chain with T steps, which are more and more noised samples from dataset. The result is sequence: $x_1,..., x_T$  of samples with distribution $q(x_t|x_{t-1})$:
+During forward diffusion process we define Markov chain with T steps, which are more and more distorted samples from dataset. The result is a sequence: $x_1,..., x_T$  of samples with distribution $q(x_t|x_{t-1})$:
 \[ q(x_t|x_{t-1}) = N(x_t;\sqrt{1-\beta_t}x_{t-1}, \beta_tI) \]
 \[ q(x_{1:T}|x_0) = \prod_{t=1}^{T}{q(x_t|x_{t-1})} \]
 
-In each step we add small amount of Gaussian noise with the variance $\beta_t$. For $T\rightarrow\infty$, $x_T$ is isotropic Gaussian distribution, however for well-chosen values of $T$ and $\beta_1,..., \beta_T$ it is nearly an isotropic Gaussian distribution and is sufficient for diffusion models.
+In each step we add a small amount of Gaussian noise with the variance $\beta_t$ multiplied by an identity matrix (due to multi-dimensional data) and the mean value: $\sqrt{1-\beta_t}x_{t-1}$. For $T\rightarrow\infty$, $x_T$ is an isotropic Gaussian distribution, however for well-chosen values of $T$ and $\beta_1,..., \beta_T$ it is nearly an isotropic Gaussian distribution and is sufficient for diffusion models.
 
-$\beta_t$ is constant increased with step $t$ according to variance schedule, linear function can be used e.g. $B_1=10^{-4}$, $B_T=0.02$ for $T=1000$. \cite{DDPM}
+$\beta_t$ is constant increased with step $t$ according to a variance schedule, linear function can be used e.g. $B_1=10^{-4}$, $B_T=0.02$ for $T=1000$. \cite{DDPM}
 
 \begin{figure}[H]
 	\centering
 	\includegraphics[width=\textwidth]{images/forward-diffusion}
-    \caption{Example of Markov chain for image \cite{DDPM}}
+    \caption{Example of Markov chain for an image \cite{DDPM}}
 \end{figure}
 
 \subsection{Reparameterization trick}
@@ -110,17 +110,20 @@ Now we can rewrite formula for $q(x_t|x_{t-1})$ using reparameterization trick a
 Let $\alpha_t = 1 - \beta_t$, $\bar{\alpha}_t = \prod_{i=1}^{t}{\alpha_i}$, so:
 \[q(x_t|x_{t-1}) = \sqrt{\alpha_t}x_{t-1} + \sqrt{1-\alpha_{t}}\epsilon\]
 \[q(x_t|x_{t-2}) = \sqrt{\alpha_t \alpha_{t-1}}x_{t-2} + \sqrt{1-\alpha_t \alpha_{t-1}}\epsilon\]
-\[q(x_t|x_0) = \sqrt{\bar{\alpha}_t}x_0 + \sqrt{1-\bar{\alpha}_t}\epsilon\]
-To get nth element from Markov chain we do not need to apply Gaussian noise $n$ times, which is slow for bigger values of $n$. It is enough to use equation above. \cite{lw_diffusion}
+\begin{equation}
+q(x_t|x_0) = \sqrt{\bar{\alpha}_t}x_0 + \sqrt{1-\bar{\alpha}_t}\epsilon
+\label{eq:repaTrick}
+\end{equation}
+To get nth element from Markov chain we do not need to apply Gaussian noise $n$ times, which is slow for bigger values of $n$. It is enough to use an equation \ref{eq:repaTrick}. \cite{lw_diffusion}
 \subsection{Reverse diffusion process}
 The idea behind reverse diffusion process is to undo the forward process and remove noise that was added. The reverse process is  also a Markov chain but this time neural network calculates the next element. Let $p_\theta$ be a reverse process function, which is probability density function.
 \[p_\theta(x_{0:T}) = p(x_T)\prod_{t=1}^{T}{p_\theta(x_{t-1}|x_t)})\]
 \[p_\theta(x_{t-1}|x_t) = N(x_{t-1};\mu_\theta(x_t, t), \Sigma_\theta(x_t,t))\]
-In our case variance is known so: $\Sigma_\theta(x_t,t)=\bar{\beta_t}$.
+In our case, variance is known: $\Sigma_\theta(x_t,t)=\beta_tI$, so the model needs to predict only the mean: $\mu_\theta(x_t, t)$.
 
 To train the network loss function is required, which is defined as negative \break log-likelihood: $-log(p_\theta(x_0))$. However it is not easily computable, because $p_\theta(x_0)$ depends on the whole Markov chain. The solution is to use variational lower bound of the function:
 \[-log(p_\theta(x_0)) \le -log(p_\theta(x_0)) + D_{KL}(q(x_{1:T}|x_0)||p_\theta(x_{1:T}|x_0))\]
-$D_{KL}$ is KL divergences. The equation can be simplified \cite{ImprovedDDPM} and it will result in loss function: $L=||\epsilon - \epsilon_\theta(x_t, t)||^2$, which is just mean square error of applied noise and predicted noise.
+$D_{KL}$ is Kullback–Leibler divergence which measures the distance between two probability distributions. \cite{KL_divergence} The equation can be simplified \cite{ImprovedDDPM} and it will result in loss function: $L=||\epsilon - \epsilon_\theta(x_t, t)||^2$, which is just mean square error of applied noise and predicted noise. \cite{aman_diffusion}
 
 \begin{figure}[H]
 	\centering
@@ -132,7 +135,7 @@ $D_{KL}$ is KL divergences. The equation can be simplified \cite{ImprovedDDPM} a
 Given that the neural network shares parameters across the entire Markov chain, we have the option to provide the model with additional information regarding its position within the Markov chain. This can be achieved in two ways: either by introducing a separate argument or by adopting a method similar to how transformers handle it, which involves using position embedding. Position embedding operates by assigning a unique vector representation to each step in the sequence, based on sine and cosine functions. This results in distinct embeddings for various positions. When these positional embeddings are integrated into the input data, the model gains the capability to simultaneously consider both the content of the elements and their positions in the sequence. This enhancement significantly improves the model's ability to effectively comprehend and process data and to be aware of the specific noise level it is currently processing. \cite{positionEmbedding_hf} \cite{AttentionIsAll}
 
 \section{Attention}
-Attention, in the context of machine learning and natural language processing, is a mechanism that allows models to focus on specific parts of input data while making predictions or generating output. The concept of attention draws inspiration from human cognitive processes, where we naturally pay varying degrees of attention to different parts of information when processing it. Attention mechanisms are particularly useful in tasks where the model needs to consider different parts of input data with varying levels of importance or relevance.
+Attention, in the context of machine learning and natural language processing, is a mechanism that allows models to focus on specific parts of input data while making predictions or generating output. The concept of attention draws inspiration from human cognitive processes, where we naturally pay varying degrees of attention to different parts of information when processing it. Attention mechanisms are particularly useful in tasks where the model needs to consider different parts of input data with varying levels of importance or relevance. \cite{AttentionWhatIs}
 
 \subsection{Attention block}
 To use this mechanism we need to implement  an attention block. An attention block is a component in neural network architectures that implements an attention mechanism. It is one of the building blocks used in diffusion model. The attention block typically takes in a set of input representations and computes attention weights to emphasize the importance of different elements within the input. These elements could be words in a sentence, pixels in an image, or any other kind of structured data. The attention weights are then used to compute a weighted sum of the input representations, resulting in an enriched representation that captures contextual information and relationships between elements.
@@ -156,14 +159,14 @@ All of these values are the same at the beginning.
 In essence, the attention mechanism computes scores by comparing the query with keys. These scores reflect how much attention each element deserves. Then, these scores are used to blend the values together, forming an output representation that captures the essence of the input sequence. \cite{AttentionIsAll} \cite{AttentionWiki} \cite{TransformersWiki}
 
 \chapter{Implementation of the model}
-This chapter will present the details of the project implementation: description of the development environment and the tools used during development. It will also describe dataset, implementation of the model and some details of selected aspects of the project.
+This chapter presents the details of the project implementation: description of the development environment and the tools used during development. It will also describe dataset, implementation of the model and some details of selected aspects of the project.
 \section{Project environment}
 During development the following tools were used:
 \begin{itemize}
 \item Python 
 \item PyTorch
 \item Monai
-\item Hugginface diffusers 
+\item Hugging Face diffusers 
 \end{itemize}
 \subsection{Python}
 Python is a high-level, and widely used programming language known for its simplicity, readability, and extensive libraries. In the context of machine learning, Python is popular due to its rich ecosystem of libraries, frameworks, and tools that make it easier to implement and experiment with various machine learning algorithms and techniques. \cite{Python}
@@ -195,14 +198,14 @@ ResNet (Residual Network) is a type of neural network design for very deep archi
 
 \begin{figure}[H]
 	\centering
-	\includegraphics[scale=0.6]{images/ResnetBlock.drawio}
+	\includegraphics[scale=0.2]{images/ResnetBlock.drawio}
     \caption{Resnet block architecture diagram}
 \end{figure}
 
 \subsection{Attention block}
 \begin{figure}[H]
 	\centering
-	\includegraphics[scale=0.6]{images/AttentionBlock.drawio}
+	\includegraphics[scale=0.2]{images/AttentionBlock.drawio}
     \caption{Attention block architecture diagram}
 \end{figure}
 
@@ -210,7 +213,7 @@ ResNet (Residual Network) is a type of neural network design for very deep archi
 Downsample and upsample blocks are simple blocks that reduce or recover dimensions of input data and adjust number of channels. Using them we can obtain certain size of latent space.
 \begin{figure}[H]
 	\centering
-	\includegraphics[scale=0.6]{images/UpDownSample.drawio}
+	\includegraphics[scale=0.2]{images/UpDownSample.drawio}
     \caption{Downsample and upsample block architecture diagram}
 \end{figure}
 
@@ -219,30 +222,30 @@ The modules above were used to build the more complex ones which are presented b
 These modules use resnet blocks and downsample or upsample blocks.
 \begin{figure}[H]
 	\centering
-	\includegraphics[scale=0.6]{images/ResnetDownUp.drawio}
+	\includegraphics[scale=0.2]{images/ResnetDownUp.drawio}
     \caption{Restnet downsample and upsample block architecture diagram}
 \end{figure}
 \subsection{Attention downsample and upsample}
-These modules are similar to downsample and upsambple but have additional attention blocks after every resnet blocks. 
+These modules are similar to downsample and upsample but have additional attention blocks after every resnet block.
 \begin{figure}[H]
 	\centering
-	\includegraphics[scale=0.6]{images/AttentionDownUp.drawio}
+	\includegraphics[scale=0.2]{images/AttentionDownUp.drawio}
     \caption{Attention downsample and upsample block architecture diagram}
 \end{figure}
 
 \subsection{Mid block}
-Mid block is responsible for processing latent space. In this case latent space is not one dimensional so the resnet blocks with convolution are used, as well as attention block for learning the dependencies between individual parts of latent space.
+Mid block is responsible for processing latent space. In this case latent space is not one dimensional so the resnet blocks with convolution are used, as well as attention blocks for learning the dependencies between individual parts of latent space.
 \begin{figure}[H]
 	\centering
-	\includegraphics[scale=0.6]{images/MidBlock.drawio}
+	\includegraphics[scale=0.2]{images/MidBlock.drawio}
     \caption{Mid block architecture diagram}
 \end{figure}
 
 \subsection{Network architecture}
-U-Net model is an architecture used in image generation. It has an encoder to capture features, a bottleneck for extraction, and a decoder for image generation. The model has additional skip connetions between encoder and decoder which help preserve fine details.
+U-Net model is an architecture used in image generation. It has an encoder to capture features, a bottleneck for extraction, and a decoder for image generation. The model has additional skip connections between encoder and decoder which help preserve fine details.
 \begin{figure}[H]
 	\centering
-	\includegraphics[scale=0.5]{images/ModelGraph.drawio}
+	\includegraphics[scale=0.16]{images/ModelGraph.drawio}
     \caption{Network architecture}
 \end{figure}
 \subsection{Training parameters}
@@ -255,6 +258,10 @@ In light of these findings, a careful evaluation led to the selection of the opt
 \subsubsection{Number of epochs}
 The number of epochs was established at 2000 due to the observation that the model's loss reached a plateau at this juncture, and further training did not yield any substantial improvements in results.
 
+\subsection{Training script}
+In the source code the training script is provided in which, users can specify various training configurations at the start of the file. These configurations include selecting the training device, defining data dimensions, specifying the number of training epochs, setting the batch size, indicating the data directory, and more. After configuring these parameters, users can customize the neural network architecture by selecting building blocks.
+
+The script then proceeds to partition the data, initiate the training process, and periodically save the model and generate samples at specified intervals during training epochs. Additionally, the script identifies and preserves the best-performing model based on its performance on a test dataset.
 
 \section{Dataset}
 The dataset contain a collection of 28 high-resolution computer tomography (CT) images that center on the prostate region. Each image has undergone meticulous hand-trimming to retain solely the pertinent anatomical features. This process results in a dataset that accentuates the vital elements essential for accurate interpretation.
@@ -270,13 +277,13 @@ All scans in this dataset adhere to a standardized dimension of 512 pixels by 51
 \end{figure}
 The dataset underwent a random partitioning procedure, resulting in the creation of two distinct subsets: a training dataset and a validation dataset. This division was executed in an 80-20 ratio, leading to a training subset comprising 23 scans and a validation subset containing 5 scans.
 
-Furthermore, to enhance the dataset's diversity and training potential, augmentation techniques were applied. Random zoom and flilp operations were employed to augment the data. These augmentation methods introduce variations in scale and orientation, contributing to a more comprehensive and versatile dataset. The incorporation of such augmented data aids in training models that are better equipped to handle a wider range of real-world scenarios and variations.
+Furthermore, to enhance the dataset's diversity and training potential, augmentation techniques were applied. Random zoom and flilp operations were employed every epoch to augment the data. These augmentation methods introduce variations in scale and orientation, contributing to a more comprehensive and versatile dataset. The incorporation of such augmented data aids in training models that are better equipped to handle a wider range of real-world scenarios and variations.
 
 Ultimately, all CT images were resized to 256 by 256 pixels, a necessary adjustment due to the limitations of GPU memory.
 
 
 \chapter{Results}
-This chapter will present the outcomes study involving generative neural networks tasked with generating realistic CT scans. The aim of this investigation was to evaluate the network's ability to produce accurate and visually coherent medical images.
+This chapter presents the results of performed studies involving generative neural networks tasked with generating realistic CT scans. The aim of this investigation was to evaluate the network's ability to produce accurate and visually coherent medical images.
 
 \section{Loss}
 \begin{figure}[H]
@@ -354,11 +361,17 @@ Future research endeavors could explore refining the network architecture for en
 \bibitem{jalammar_diffusion}
 \url{http://jalammar.github.io/illustrated-stable-diffusion/}
 
+\bibitem{aman_diffusion}
+\url{https://aman.ai/primers/ai/diffusion-models/}
+
 \bibitem{vaeLogLikelihhod}
 \url{https://arxiv.org/pdf/2206.09453.pdf}
 
 \bibitem{diffusionWiki}
 \url{https://en.wikipedia.org/wiki/Diffusion_model}
+
+\bibitem{KL_divergence}
+\url{https://en.wikipedia.org/wiki/Kullback%E2%80%93Leibler_divergence}
 
 \bibitem{vaeWiki}
 \url{https://en.wikipedia.org/wiki/Variational_autoencoder}
@@ -390,6 +403,9 @@ Ian Goodfellow and Yoshua Bengio and Aaron Courville, Deep Learning, 2015
 
 \bibitem{TransformersWiki}
 \url{https://w.wiki/7MW8}
+
+\bibitem{AttentionWhatIs}
+\url{https://machinelearningmastery.com/the-attention-mechanism-from-scratch/}
 
 \bibitem{Michal}
 Analysis of the quality of CT medical data generation using a pre-trained GAN model, Michał Orlewski, 2023
