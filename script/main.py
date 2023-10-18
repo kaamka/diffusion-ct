@@ -1,3 +1,5 @@
+# setup TrainingConfig, setup model, python ./main.py
+# TODO saving how data is split between test and train
 from diffusers.optimization import get_cosine_schedule_with_warmup
 import torch.nn.functional as F
 from dataclasses import dataclass
@@ -84,6 +86,7 @@ val_loader = torch.utils.data.DataLoader(
 
 print(len(images))
 
+# create directories and save few images from dataset as png
 if not config.load_model_from_file:
     os.makedirs(config.output_dir, exist_ok=True)
     examples_dir = config.output_dir + '/examples_from_dataset'
@@ -102,12 +105,13 @@ if not config.load_model_from_file:
         fig.savefig(examples_dir + f"/{i}.png")
         plt.close(fig)
 
+# model config
 model = UNet3DModel(
     sample_size=config.image_size,
     sample_depth=config.scan_depth,
-    in_channels=1,
-    out_channels=1,
-    layers_per_block=2,
+    in_channels=1,  # data are in grayscale, so always 1
+    out_channels=1,  # ^
+    layers_per_block=2,  # number of resnet blocks in each down_block/up_block
     block_out_channels=(32, 64, 64, 128, 256, 512, 512),
     down_block_types=(
         "DownBlock3D",
@@ -130,8 +134,6 @@ model = UNet3DModel(
     norm_num_groups=32,
     dropout=0.0,
 )
-best_model = None
-best_model_loss = 9999.
 
 with open(config.output_dir + "/config.txt", 'w') as fp:
     fp.write(
@@ -160,6 +162,7 @@ print("Output shape:", model.to(device)(sample_image, timestep=0).sample.shape)
 noise_scheduler = DDPMScheduler(num_train_timesteps=1000)
 
 
+# generate data (with set seed) and save to file
 @torch.no_grad()
 def evaluate(config, epoch):
     eval_device = device
@@ -204,15 +207,12 @@ lr_scheduler = get_cosine_schedule_with_warmup(
 
 
 def train_loop(config, model, noise_scheduler, optimizer, train_dataloader, lr_scheduler):
-    global best_model
-    global best_model_loss
     os.makedirs(config.output_dir, exist_ok=True)
     global_step = 0
     epoch_begin = 0
 
     count = 0
     if config.load_model_from_file:
-        model.load_state_dict(torch.load(config.output_dir + '/model'))
         with open(config.output_dir + "/loss.txt", 'r') as fp:
             for count, line in enumerate(fp):
                 pass
@@ -259,6 +259,7 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataloader, lr_s
             global_step += 1
 
         train_loss /= len(train_dataloader)
+        # calculate validation loss
         with torch.no_grad():
             for step, batch in enumerate(val_loader):
                 clean_images = prepare_batch(batch, device)
@@ -280,11 +281,6 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataloader, lr_s
                 lr_scheduler.get_last_lr()[0], "step": global_step}
         progress_bar.set_postfix(**logs)
 
-        if best_model_loss > val_loss:
-            best_model = copy.deepcopy(model).eval().requires_grad_(False)
-            best_model_loss = val_loss
-            print(f"NEW BEST: {best_model_loss}")
-
         loss_file.write(f"{train_loss} {val_loss}\n")
         loss_file.flush()
 
@@ -299,11 +295,10 @@ train_loop(config, model.to(device), noise_scheduler,
            optimizer, train_loader, lr_scheduler)
 
 
+# generate final n examples
 @torch.no_grad()
-def generate(n, model, best=False):
+def generate(n, model):
     gen_dir = os.path.join(config.output_dir, "generated_examples")
-    if best:
-        gen_dir = os.path.join(config.output_dir, "generated_best_examples")
     os.makedirs(gen_dir, exist_ok=True)
     for i in range(n):
         print(f"Generating: {i + 1}/{n} scan")
@@ -336,7 +331,3 @@ def generate(n, model, best=False):
 
 
 generate(10, model)
-if best_model:
-    generate(10, best_model, True)
-    print(f"Best model loss: {best_model_loss}")
-    torch.save(best_model.state_dict(), config.output_dir + '/best_model')
