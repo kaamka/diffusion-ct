@@ -1,5 +1,6 @@
 # setup TrainingConfig, setup model, python ./main.py
 # TODO saving how data is split between test and train
+
 from diffusers.optimization import get_cosine_schedule_with_warmup
 import torch.nn.functional as F
 from dataclasses import dataclass
@@ -17,6 +18,18 @@ from monai.utils import first
 
 from diffusers import DDPMScheduler
 from UNet3D_2D import UNet3DModel
+
+import time
+
+def timing_decorator(func):
+    def wrapper(*args, **kwargs):
+        start_time = time.time()
+        func(*args, **kwargs)
+        end_time = time.time()
+        exec_time = end_time - start_time
+        print(f'{func.__name__} took {exec_time:.2f} seconds')
+    return wrapper
+
 
 
 from monai.transforms import (
@@ -47,7 +60,7 @@ class TrainingConfig:
     image_size = 256
     scan_depth = 26
     batch_size = 1
-    num_epochs = 2000
+    num_epochs = 10 #2000
     learning_rate = 1e-4
     lr_warmup_steps = 1000
     save_image_epochs = 100
@@ -173,10 +186,12 @@ def evaluate(config, epoch):
                    config.image_size, config.image_size)
     image = torch.randn(image_shape, generator=generator,
                         device=eval_device).to(eval_device)
+    
+    # t: num_train_timesteps ... 0 (1000, 999, ..., 0)
     for t in tqdm(noise_scheduler.timesteps):
         # 1. predict noise model_output
         model_output = model.to(eval_device)(image, t).sample
-        # 2. compute previous image: x_t -> x_t-1
+        # 2. compute previous image: x_t -> x_t-1 until x_0 - a generated clean image
         image = noise_scheduler.step(
             model_output, t, image, generator=generator).prev_sample
 
@@ -205,7 +220,7 @@ lr_scheduler = get_cosine_schedule_with_warmup(
     num_training_steps=(len(train_loader) * config.num_epochs),
 )
 
-
+@timing_decorator
 def train_loop(config, model, noise_scheduler, optimizer, train_dataloader, lr_scheduler):
     os.makedirs(config.output_dir, exist_ok=True)
     global_step = 0
@@ -236,12 +251,15 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataloader, lr_s
             # Sample a random timestep for each image
             timesteps = torch.randint(
                 0, noise_scheduler.config.num_train_timesteps, (bs,), device=clean_images.device
-            ).long().to(clean_images.device)
+            ).long().to(clean_images.device) # generates a tensor of shape (1,) with random int from range [0, 1000) ?
 
             # Add noise to the clean images according to the noise magnitude at each timestep
             # (this is the forward diffusion process)
             noisy_images = noise_scheduler.add_noise(
                 clean_images, noise, timesteps)
+
+            # TODO: print shapes and values of timesteps, noisy_images
+
             noise_pred = model(noisy_images, timesteps,
                                return_dict=False)[0].to(device)
             loss = F.mse_loss(noise_pred, noise.to(device))

@@ -12,7 +12,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-
 class UpBlock2D(nn.Module):
     def __init__(
         self,
@@ -1077,6 +1076,7 @@ class UNet3DOutput(BaseOutput):
 
 
 class UNet3DModel(ModelMixin, ConfigMixin):
+
     @register_to_config
     def __init__(
         self,
@@ -1103,7 +1103,7 @@ class UNet3DModel(ModelMixin, ConfigMixin):
         add_attention: bool = True,
         dropout=0.0,
     ):
-        self.block_out_channels = block_out_channels
+        self.block_out_channels = block_out_channels # number of output channels from each down block (reverse for up blocks)
         self.down_block_types = down_block_types
         self.up_block_types = up_block_types
         super().__init__()
