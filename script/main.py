@@ -42,6 +42,7 @@ from monai.transforms import (
     RandRotate,
     RandZoom,
     ScaleIntensity,
+    ScaleIntensityRange,
     EnsureType,
     Transform,
     Resize,
@@ -60,11 +61,11 @@ class TrainingConfig:
     image_size = 256
     scan_depth = 26
     batch_size = 1
-    num_epochs = 10 #2000
+    num_epochs = 2000
     learning_rate = 1e-4
     lr_warmup_steps = 1000
-    save_image_epochs = 100
-    save_model_epochs = 50
+    save_image_epochs = 200
+    save_model_epochs = 200
     output_dir = "ct_256"
     seed = 0
     load_model_from_file = False
@@ -72,14 +73,18 @@ class TrainingConfig:
 
 config = TrainingConfig()
 
+win_wid = 400
+win_lev = 60
+
 transforms = Compose(
     [
         LoadImage(image_only=True),
         AddChannel(),
         Resize((config.image_size, config.image_size, config.scan_depth)),
-        ScaleIntensity(),
-        RandFlip(spatial_axis=1, prob=0.5),
-        RandZoom(min_zoom=0.9, max_zoom=1.1, prob=0.5),
+        # ScaleIntensity(),
+        ScaleIntensityRange(a_min=win_lev-(win_wid/2), a_max=win_lev+(win_wid/2), b_min=0.0, b_max=1.0, clip=True),
+        # RandFlip(spatial_axis=1, prob=0.5),
+        # RandZoom(min_zoom=0.9, max_zoom=1.1, prob=0.5),
         EnsureType()
     ]
 )
@@ -257,8 +262,6 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataloader, lr_s
             # (this is the forward diffusion process)
             noisy_images = noise_scheduler.add_noise(
                 clean_images, noise, timesteps)
-
-            # TODO: print shapes and values of timesteps, noisy_images
 
             noise_pred = model(noisy_images, timesteps,
                                return_dict=False)[0].to(device)
