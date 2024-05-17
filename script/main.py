@@ -1,41 +1,31 @@
 import os
 import glob
-import time
-import math
 import logging
 from dataclasses import dataclass
 from datetime import timedelta
 
 import torch
 import torch.nn.functional as F
-from torchvision import transforms
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 
 import diffusers
 from diffusers import DDPMScheduler
 from diffusers.optimization import get_cosine_schedule_with_warmup
-from diffusers.utils import is_accelerate_version, is_tensorboard_available
+from diffusers.utils import is_tensorboard_available
 from accelerate import Accelerator, InitProcessGroupKwargs
 from accelerate.logging import get_logger
 from accelerate.utils import ProjectConfiguration
 
 from monai.visualize import matshow3d
 from monai.data import CacheDataset
-from monai.utils import first
 from monai.transforms import (
     LoadImage,
     EnsureChannelFirst,
-    ToTensor,
     Lambda,
     Compose,
-    RandFlip,
-    RandRotate,
-    RandZoom,
-    ScaleIntensity,
     ScaleIntensityRange,
     EnsureType,
-    Transform,
     Resize,
 )
 
@@ -143,8 +133,6 @@ def main():
 
     if not is_tensorboard_available():
         raise ImportError("tensorboard not found")
-    
-    # TODO: add hooks for saving/loading models
 
     logging.basicConfig(
         format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
@@ -257,9 +245,6 @@ def main():
 
     global_step = 0
     first_epoch = 0
-
-    # TODO: loading weights and states from previous save
-    # TODO: skip epochs
 
     # train the model
     for epoch in range(first_epoch, config.num_epochs):
