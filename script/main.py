@@ -3,6 +3,7 @@ import glob
 import logging
 from dataclasses import dataclass
 from datetime import timedelta
+from pathlib import Path
 
 import torch
 import torch.nn.functional as F
@@ -37,7 +38,7 @@ warnings.filterwarnings('ignore', category=UserWarning, message='TypedStorage is
 
 @dataclass
 class TrainingConfig:
-    data_dir = "/ravana/d3d_work/common/augm/images_34/FOR_SEG_AUG/ct_images_prostate_32fixed/"
+    data_dir = "/ravana/d3d_work/common/DATA_med_img/augm/images_34/FOR_SEG_AUG/ct_images_prostate_32fixed/"
     image_size = 256
     scan_depth = 32
     batch_size = 1
@@ -189,8 +190,9 @@ def main():
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.learning_rate)
 
     # prepare dataset
-    images_pattern = os.path.join(config.data_dir, "*.nii.gz")
+    images_pattern = os.path.join(config.data_dir, '*.nii.gz')
     images = sorted(glob.glob(images_pattern))
+
 
     win_wid = 400
     win_lev = 60
@@ -207,6 +209,7 @@ def main():
 
     dataset = CacheDataset(images, transforms)
     val_size = len(dataset) // 5
+    print(val_size)
     train_dataset, val_dataset = torch.utils.data.random_split(dataset, [len(dataset) - val_size, val_size])
 
     train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=config.batch_size, num_workers=10, shuffle=True)
