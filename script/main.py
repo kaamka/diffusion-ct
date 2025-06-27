@@ -38,11 +38,11 @@ warnings.filterwarnings('ignore', category=UserWarning, message='TypedStorage is
 
 @dataclass
 class TrainingConfig:
-    data_dir = "/ravana/d3d_work/common/DATA_med_img/augm/images_34/FOR_SEG_AUG/ct_images_prostate_32fixed/"
+    data_dir = "/sekhemet/scratch/kamkal/Augm/data_v2_prostate_32slices_34_plus_100/"
     image_size = 256
     scan_depth = 32
     batch_size = 1
-    num_epochs = 2000
+    num_epochs = 4000
     learning_rate = 1e-4
     lr_warmup_steps = 1000
     save_image_epochs = 100
