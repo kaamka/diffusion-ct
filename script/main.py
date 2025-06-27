@@ -31,6 +31,7 @@ from monai.transforms import (
 )
 
 from UNet3D_2D import UNet3DModel
+import argparse
 
 # silence warning
 import warnings
@@ -38,8 +39,28 @@ warnings.filterwarnings('ignore', category=UserWarning, message='TypedStorage is
 
 @dataclass
 class TrainingConfig:
-    data_dir = "/sekhemet/scratch/kamkal/Augm/data_v2_prostate_32slices_34_plus_100/"
-    image_size = 256
+    data_dir: str
+    imagae_size: int
+    scan_depth: int
+    batch_size: int
+    num_epochs: int
+    learning_rate: float
+    lr_warmup_steps : int
+    save_image_epochs : int
+    save_model_epochs : int
+    output_dir: str
+    seed: int
+    load_model_from_file: bool
+    checkpoint_path: str
+    logging_dir = f"{output_dir}/logs"
+
+
+@dataclass
+class TrainingConfig:
+    data_dir: str
+    # data_dir = "/sekhemet/scratch/kamkal/Augm/data_v2_prostate_32slices_34_plus_100/"
+    # image_size = 256
+    image_size: int
     scan_depth = 32
     batch_size = 1
     num_epochs = 4000
@@ -117,9 +138,51 @@ def generate(n, model, config, noise_scheduler, device):
         fig.savefig(f"{gen_dir}/{i+1}.png")
         plt.close(fig)
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="Training script configuration")
+
+    parser.add_argument("--data_dir", type=str, required=True, help="Path to data directory")
+    parser.add_argument("--image_size", type=int, default=256, help="Size of the input image")
+    parser.add_argument("--scan_depth", type=int, default=32)
+    parser.add_argument("--batch_size", type=int, default=1)
+    parser.add_argument("--num_epochs", type=int, default=4000)
+    parser.add_argument("--learning_rate", type=float, default=1e-4)
+    parser.add_argument("--lr_warmup_steps", type=int, default=1000)
+    parser.add_argument("--save_image_epochs", type=int, default=100)
+    parser.add_argument("--save_model_epochs", type=int, default=500)
+    parser.add_argument("--output_dir", type=str, default="ct_256")
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--load_model_from_file", action="store_true", help="Load model from checkpoint")
+    parser.add_argument("--checkpoint_path", type=str, default="", help="Path to model checkpoint")
+    parser.add_argument("--logging_dir", type=str, default=None, help="Where to save logs (default: output_dir/logs)")
+
+
+
 def main():
+    args = parse_args()
+
+    # Set logging_dir if not provided
+    logging_dir = args.logging_dir or f"{args.output_dir}/logs"
+
+    config = TrainingConfig(
+        data_dir=args.data_dir,
+        image_size=args.image_size,
+        scan_depth=args.scan_depth,
+        batch_size=args.batch_size,
+        num_epochs=args.num_epochs,
+        learning_rate=args.learning_rate,
+        lr_warmup_steps=args.lr_warmup_steps,
+        save_image_epochs=args.save_image_epochs,
+        save_model_epochs=args.save_model_epochs,
+        output_dir=args.output_dir,
+        seed=args.seed,
+        load_model_from_file=args.load_model_from_file,
+        checkpoint_path=args.checkpoint_path,
+        logging_dir=logging_dir
+    )
+
     logger = get_logger(__name__, log_level="INFO")
-    config = TrainingConfig()
+    #config = TrainingConfig()
     accelerator_project_config = ProjectConfiguration(
         project_dir=config.output_dir,
         logging_dir=config.logging_dir
@@ -331,5 +394,6 @@ def main():
     accelerator.wait_for_everyone()
     accelerator.end_training()
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()
