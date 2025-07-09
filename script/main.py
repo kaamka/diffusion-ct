@@ -1,4 +1,3 @@
-import os
 import glob
 import logging
 from dataclasses import dataclass
@@ -37,10 +36,13 @@ import argparse
 import warnings
 warnings.filterwarnings('ignore', category=UserWarning, message='TypedStorage is deprecated')
 
+import os
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:64"
+
 @dataclass
 class TrainingConfig:
     data_dir: str
-    imagae_size: int
+    image_size: int
     scan_depth: int
     batch_size: int
     num_epochs: int
@@ -52,27 +54,29 @@ class TrainingConfig:
     seed: int
     load_model_from_file: bool
     checkpoint_path: str
-    logging_dir = f"{output_dir}/logs"
+    logging_dir = str
 
 
-@dataclass
-class TrainingConfig:
-    data_dir: str
-    # data_dir = "/sekhemet/scratch/kamkal/Augm/data_v2_prostate_32slices_34_plus_100/"
-    # image_size = 256
-    image_size: int
-    scan_depth = 32
-    batch_size = 1
-    num_epochs = 4000
-    learning_rate = 1e-4
-    lr_warmup_steps = 1000
-    save_image_epochs = 100
-    save_model_epochs = 500
-    output_dir = "ct_256"
-    seed = 0
-    load_model_from_file = False
-    checkpoint_path = ""
-    logging_dir = f"{output_dir}/logs"
+# @dataclass
+# class TrainingConfig:
+#     data_dir: str
+#     # data_dir = "/sekhemet/scratch/kamkal/Augm/data_v2_prostate_32slices_34_plus_100/"
+#     # image_size = 256
+#     image_size: int
+#     scan_depth = 32
+#     batch_size = 1
+#     num_epochs = 4000
+#     learning_rate = 1e-4
+#     lr_warmup_steps = 1000
+#     save_image_epochs = 100
+#     save_model_epochs = 500
+#     output_dir = "ct_256"
+#     seed = 0
+#     load_model_from_file = False
+#     checkpoint_path = ""
+#     logging_dir = f"{output_dir}/logs"
+
+
 
 # evaluate model and save results
 @torch.no_grad()
@@ -141,7 +145,9 @@ def generate(n, model, config, noise_scheduler, device):
 def parse_args():
     parser = argparse.ArgumentParser(description="Training script configuration")
 
-    parser.add_argument("--data_dir", type=str, required=True, help="Path to data directory")
+    parser.add_argument("--data_dir", type=str, required=True, help="Path to data directory")    
+    parser.add_argument("--output_dir", type=str, help="Directory to save output files")
+
     parser.add_argument("--image_size", type=int, default=256, help="Size of the input image")
     parser.add_argument("--scan_depth", type=int, default=32)
     parser.add_argument("--batch_size", type=int, default=1)
@@ -150,19 +156,20 @@ def parse_args():
     parser.add_argument("--lr_warmup_steps", type=int, default=1000)
     parser.add_argument("--save_image_epochs", type=int, default=100)
     parser.add_argument("--save_model_epochs", type=int, default=500)
-    parser.add_argument("--output_dir", type=str, default="ct_256")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--load_model_from_file", action="store_true", help="Load model from checkpoint")
     parser.add_argument("--checkpoint_path", type=str, default="", help="Path to model checkpoint")
     parser.add_argument("--logging_dir", type=str, default=None, help="Where to save logs (default: output_dir/logs)")
-
+    return parser.parse_args()
+    
 
 
 def main():
     args = parse_args()
+    print(args.data_dir)
 
     # Set logging_dir if not provided
-    logging_dir = args.logging_dir or f"{args.output_dir}/logs"
+    #logging_dir = args.logging_dir or f"{args.output_dir}/logs"
 
     config = TrainingConfig(
         data_dir=args.data_dir,
@@ -178,14 +185,16 @@ def main():
         seed=args.seed,
         load_model_from_file=args.load_model_from_file,
         checkpoint_path=args.checkpoint_path,
-        logging_dir=logging_dir
+        #logging_dir=args.logging_dir
+        #logging_dir=f"{args.output_dir}/logs" if args.logging_dir is None else args.logging_dir
     )
-
+    os.makedirs(config.output_dir + f'/models', exist_ok=True)
+    logging_dir=f"{args.output_dir}/logs" if args.logging_dir is None else args.logging_dir
     logger = get_logger(__name__, log_level="INFO")
     #config = TrainingConfig()
     accelerator_project_config = ProjectConfiguration(
         project_dir=config.output_dir,
-        logging_dir=config.logging_dir
+        logging_dir=logging_dir
     )
 
     kwargs = InitProcessGroupKwargs(timeout=timedelta(seconds=7200))  # a big number for high resolution or big dataset
@@ -218,6 +227,7 @@ def main():
         out_channels=1,  # data are in grayscale, so always 1
         layers_per_block=2,  # number of resnet blocks in each down_block/up_block
         block_out_channels=(32, 64, 64, 128, 256, 512, 512),
+        #block_out_channels=(32, 64, 128, 256),
         down_block_types=(
             "DownBlock3D",
             "DownBlock2D",
@@ -346,6 +356,9 @@ def main():
             optimizer.step()
             lr_scheduler.step()
             optimizer.zero_grad()
+
+            torch.cuda.empty_cache()
+            torch.cuda.reset_peak_memory_stats()
                 
             # check if the accelerator has performed an optimization step
             if accelerator.sync_gradients:
