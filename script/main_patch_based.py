@@ -19,7 +19,7 @@ from accelerate.logging import get_logger
 from accelerate.utils import ProjectConfiguration
 
 from monai.visualize import matshow3d
-from monai.data import Dataset
+from monai.data import Dataset, CacheDataset
 from monai.transforms import (
     LoadImage,
     EnsureChannelFirst,
@@ -27,7 +27,8 @@ from monai.transforms import (
     EnsureType,
     Compose,
     RandSpatialCrop,
-    Lambda
+    Lambda,
+    Resize,
 )
 
 from UNet3D_2D import UNet3DModel
@@ -104,7 +105,7 @@ def generate(n, model, config, noise_scheduler, device):
     gen_dir = os.path.join(config.output_dir, "generated_examples")
     os.makedirs(gen_dir, exist_ok=True)
 
-    patch_size = (config.scan_depth, 256, 256)
+    patch_size = (config.scan_depth, 64, 64)
     full_size = (config.scan_depth, config.image_size, config.image_size)
     coords = get_patch_coords(full_size, patch_size, overlap=64)
 
@@ -152,7 +153,7 @@ def parse_args():
 
     parser.add_argument("--data_dir", type=str, required=True, help="Path to NIfTI data directory")
     parser.add_argument("--output_dir", type=str, required=True, help="Directory to save outputs and models")
-    parser.add_argument("--image_size", type=int, default=512, help="XY size of the full volume")
+    parser.add_argument("--image_size", type=int, default=256, help="XY size of the full volume")
     parser.add_argument("--scan_depth", type=int, default=32, help="Z depth of the volume")
     parser.add_argument("--batch_size", type=int, default=1, help="Training batch size")
     parser.add_argument("--num_epochs", type=int, default=4000)
@@ -169,3 +170,247 @@ def parse_args():
 
 def main():
     args = parse_args()
+    print(args.data_dir)
+
+    # Set logging_dir if not provided
+    #logging_dir = args.logging_dir or f"{args.output_dir}/logs"
+
+    config = TrainingConfig(
+        data_dir=args.data_dir,
+        image_size=args.image_size,
+        scan_depth=args.scan_depth,
+        batch_size=args.batch_size,
+        num_epochs=args.num_epochs,
+        learning_rate=args.learning_rate,
+        lr_warmup_steps=args.lr_warmup_steps,
+        save_image_epochs=args.save_image_epochs,
+        save_model_epochs=args.save_model_epochs,
+        output_dir=args.output_dir,
+        seed=args.seed,
+        load_model_from_file=args.load_model_from_file,
+        checkpoint_path=args.checkpoint_path,
+        #logging_dir=args.logging_dir
+        #logging_dir=f"{args.output_dir}/logs" if args.logging_dir is None else args.logging_dir
+    )
+    os.makedirs(config.output_dir + f'/models', exist_ok=True)
+    logging_dir=f"{args.output_dir}/logs" if args.logging_dir is None else args.logging_dir
+    logger = get_logger(__name__, log_level="INFO")
+    #config = TrainingConfig()
+    accelerator_project_config = ProjectConfiguration(
+        project_dir=config.output_dir,
+        logging_dir=logging_dir
+    )
+
+    kwargs = InitProcessGroupKwargs(timeout=timedelta(seconds=7200))  # a big number for high resolution or big dataset
+    accelerator = Accelerator(
+        log_with="tensorboard",
+        project_config=accelerator_project_config,
+        kwargs_handlers=[kwargs]
+    )
+
+    if not is_tensorboard_available():
+        raise ImportError("tensorboard not found")
+
+    logging.basicConfig(
+        format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
+        datefmt="%m/%d/%Y %H:%M:%S",
+        level=logging.INFO,
+    )
+    logger.info(accelerator.state, main_process_only=False)
+
+    if accelerator.is_local_main_process:
+        diffusers.utils.logging.set_verbosity_info()
+    else:
+        diffusers.utils.logging.set_verbosity_error()
+
+    # initialize model
+    model = UNet3DModel(
+        sample_size=config.image_size,
+        sample_depth=config.scan_depth,
+        in_channels=1,  # data are in grayscale, so always 1
+        out_channels=1,  # data are in grayscale, so always 1
+        layers_per_block=2,  # number of resnet blocks in each down_block/up_block
+        block_out_channels=(32, 64, 64, 128, 256, 512, 512),
+        #block_out_channels=(32, 64, 128, 256),
+        down_block_types=(
+            "DownBlock3D",
+            "DownBlock2D",
+            "DownBlock3D",
+            "DownBlock2D",
+            "DownBlock3D",
+            "AttnDownBlock3D",
+            "DownBlock3D",
+        ),
+        up_block_types=(
+            "UpBlock3D",
+            "AttnUpBlock3D",
+            "UpBlock2D",
+            "UpBlock3D",
+            "UpBlock2D",
+            "UpBlock3D",
+            "UpBlock3D",
+        ),
+        norm_num_groups=32,
+        dropout=0.0,
+    )
+
+    with open(config.output_dir + "/config.txt", 'w') as fp:
+        fp.write(f"{model.block_out_channels}\n{model.down_block_types}\n{model.up_block_types}\n")
+
+    if config.load_model_from_file:
+        model.load_state_dict(torch.load(config.output_dir + '/model'))
+
+    # initialize noise scheduler
+    noise_scheduler = DDPMScheduler(num_train_timesteps=1500)
+
+    # initialize optimizer
+    optimizer = torch.optim.AdamW(model.parameters(), lr=config.learning_rate)
+
+    # prepare dataset
+    images_pattern = os.path.join(config.data_dir, '*.nii.gz')
+    images = sorted(glob.glob(images_pattern))
+
+
+    win_wid = 400
+    win_lev = 60
+
+    transforms = Compose(
+        [
+            LoadImage(image_only=True),
+            EnsureChannelFirst(),
+            Resize((config.image_size, config.image_size, config.scan_depth)),
+            ScaleIntensityRange(a_min=win_lev-(win_wid/2), a_max=win_lev+(win_wid/2), b_min=0.0, b_max=1.0, clip=True),
+            EnsureType()
+        ]
+    )
+
+    dataset = CacheDataset(images, transforms)
+    val_size = len(dataset) // 5
+    print(val_size)
+    train_dataset, val_dataset = torch.utils.data.random_split(dataset, [len(dataset) - val_size, val_size])
+
+    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=config.batch_size, num_workers=10, shuffle=True)
+    val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=config.batch_size, num_workers=10, shuffle=True)
+
+    def prepare_batch(batch_data, device=None, non_blocking=False):
+        t = Compose(
+            [
+                Lambda(lambda t: (t * 2) - 1),
+            ]
+        )
+        return t(batch_data.permute(0, 1, 4, 2, 3).to(device=device, non_blocking=non_blocking))
+    
+    logger.info(f"Dataset size: {len(dataset)}")
+
+    # initialize learning rate scheduler
+    lr_scheduler = get_cosine_schedule_with_warmup(
+        optimizer=optimizer,
+        num_warmup_steps=config.lr_warmup_steps,
+        num_training_steps=(len(train_loader) * config.num_epochs),
+    )
+
+    # prepare everyting with accelerator
+    model, optimizer, train_loader, val_loader, lr_scheduler = accelerator.prepare(
+        model, optimizer, train_loader, val_loader, lr_scheduler
+    )
+
+    # initialize trackers on main process
+    if accelerator.is_main_process:
+        run = os.path.split(__file__)[-1].split(".")[0]
+        accelerator.init_trackers(run)
+
+    logger.info("***** Running training *****")
+    logger.info(f"  Num examples = {len(dataset)}")
+    logger.info(f"  Num Epochs = {config.num_epochs}")
+
+    global_step = 0
+    first_epoch = 0
+
+    # train the model
+    for epoch in range(first_epoch, config.num_epochs):
+        model.train()
+        
+        progress_bar = tqdm(total=len(train_loader), disable=not accelerator.is_local_main_process)
+        progress_bar.set_description(f"Epoch {epoch}")
+
+        train_loss = 0
+        for step, batch in enumerate(train_loader):
+            clean_images = prepare_batch(batch)
+
+            # Sample noise to add to the images
+            noise = torch.randn(clean_images.shape).to(clean_images.device)
+            bs = clean_images.shape[0]
+
+            # Sample a random timestep for each image
+            timesteps = torch.randint(
+                0, noise_scheduler.config.num_train_timesteps, (bs,), device=clean_images.device
+            ).long() # generates a tensor of shape (1,) with random int from range [0, 1000)
+    
+            # Add noise to the clean images according to the noise magnitude at each timestep
+            # (this is the forward diffusion process)
+            noisy_images = noise_scheduler.add_noise(clean_images, noise, timesteps)
+            
+            # predict the noise residual
+            model_output = model(noisy_images, timesteps).sample
+            loss = F.mse_loss(model_output.float(), noise.float())
+            train_loss += loss.detach().item()
+
+            # os.system("nvidia-smi --query-gpu=temperature.gpu,utilization.gpu,utilization.memory --format=csv")
+            accelerator.backward(loss)
+            optimizer.step()
+            lr_scheduler.step()
+            optimizer.zero_grad()
+
+            torch.cuda.empty_cache()
+            torch.cuda.reset_peak_memory_stats()
+                
+            # check if the accelerator has performed an optimization step
+            if accelerator.sync_gradients:
+                progress_bar.update(1)
+                global_step += 1
+
+            logs = {"loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0], "step": global_step}
+            progress_bar.set_postfix(**logs)
+            accelerator.log(logs, step=global_step)
+
+        # calculate validation loss
+        val_loss = 0
+        with torch.no_grad():
+            for step, batch in enumerate(val_loader):
+                clean_images = prepare_batch(batch)
+                noise = torch.randn(clean_images.shape).to(clean_images.device)
+                bs = clean_images.shape[0]
+                # Sample a random timestep for each image
+                timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (bs,), device=clean_images.device).long()
+                noisy_images = noise_scheduler.add_noise(clean_images, noise, timesteps)
+                noise_pred = model(noisy_images, timesteps, return_dict=False)[0]
+                val_loss += F.mse_loss(noise_pred, noise).detach().item()
+
+        train_loss /= len(train_loader)
+        val_loss /= len(val_loader)
+
+        logs = {"train_loss": train_loss, "val_loss": val_loss, "lr": lr_scheduler.get_last_lr()[0], "step": global_step}
+        progress_bar.set_postfix(**logs)
+        accelerator.log({"train_loss": train_loss, "val_loss": val_loss}, step=epoch)
+
+        progress_bar.close()
+
+        if accelerator.is_main_process:
+            if epoch == config.num_epochs - 1 or (epoch + 1) % config.save_image_epochs == 0:
+                logger.info(f"Model evaluation: ")
+                evaluate(model, config, epoch, noise_scheduler, accelerator.device)
+
+            if epoch == config.num_epochs - 1 or (epoch + 1) % config.save_model_epochs == 0:
+                torch.save(model.state_dict(), config.output_dir + f'/models/model_{epoch}')
+
+        accelerator.wait_for_everyone()
+
+    if accelerator.is_main_process:       
+        generate(10, model, config, noise_scheduler, accelerator.device)
+
+    accelerator.wait_for_everyone()
+    accelerator.end_training()
+
+
+if __name__ == "__main__":
+    main()
