@@ -1,3 +1,4 @@
+import os
 import glob
 import logging
 from dataclasses import dataclass
@@ -18,14 +19,15 @@ from accelerate.logging import get_logger
 from accelerate.utils import ProjectConfiguration
 
 from monai.visualize import matshow3d
-from monai.data import CacheDataset
+from monai.data import Dataset, CacheDataset
 from monai.transforms import (
     LoadImage,
     EnsureChannelFirst,
-    Lambda,
-    Compose,
     ScaleIntensityRange,
     EnsureType,
+    Compose,
+    RandSpatialCrop,
+    Lambda,
     Resize,
 )
 
@@ -35,8 +37,6 @@ import argparse
 # silence warning
 import warnings
 warnings.filterwarnings('ignore', category=UserWarning, message='TypedStorage is deprecated')
-
-import os
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:64"
 
 @dataclass
@@ -47,122 +47,126 @@ class TrainingConfig:
     batch_size: int
     num_epochs: int
     learning_rate: float
-    lr_warmup_steps : int
-    save_image_epochs : int
-    save_model_epochs : int
+    lr_warmup_steps: int
+    save_image_epochs: int
+    save_model_epochs: int
     output_dir: str
     seed: int
     load_model_from_file: bool
     checkpoint_path: str
     logging_dir = str
 
+def get_patch_coords(full_size, patch_size, overlap=0):
+    d, h, w = full_size
+    pd, ph, pw = patch_size
+    coords = []
+    for z in range(0, d - pd + 1, pd - overlap):
+        for y in range(0, h - ph + 1, ph - overlap):
+            for x in range(0, w - pw + 1, pw - overlap):
+                coords.append((z, y, x))
+    return coords
 
-# @dataclass
-# class TrainingConfig:
-#     data_dir: str
-#     # data_dir = "/sekhemet/scratch/kamkal/Augm/data_v2_prostate_32slices_34_plus_100/"
-#     # image_size = 256
-#     image_size: int
-#     scan_depth = 32
-#     batch_size = 1
-#     num_epochs = 4000
-#     learning_rate = 1e-4
-#     lr_warmup_steps = 1000
-#     save_image_epochs = 100
-#     save_model_epochs = 500
-#     output_dir = "ct_256"
-#     seed = 0
-#     load_model_from_file = False
-#     checkpoint_path = ""
-#     logging_dir = f"{output_dir}/logs"
+def stitch_patches(patches, coords, full_size, patch_size):
+    stitched = torch.zeros((1, *full_size))
+    count_map = torch.zeros_like(stitched)
+    for patch, (z, y, x) in zip(patches, coords):
+        stitched[:, z:z+patch_size[0], y:y+patch_size[1], x:x+patch_size[2]] += patch
+        count_map[:, z:z+patch_size[0], y:y+patch_size[1], x:x+patch_size[2]] += 1
+    return stitched / count_map
 
+def get_patch_transforms(config):
+    win_wid = 400
+    win_lev = 60
+    return Compose([
+        LoadImage(image_only=True),
+        EnsureChannelFirst(),
+        ScaleIntensityRange(a_min=win_lev - (win_wid / 2), a_max=win_lev + (win_wid / 2), b_min=0.0, b_max=1.0, clip=True),
+        RandSpatialCrop(roi_size=(config.scan_depth, 256, 256), random_size=False),
+        EnsureType()
+    ])
 
+def load_patch_datasets(config):
+    images_pattern = os.path.join(config.data_dir, '*.nii.gz')
+    images = sorted(glob.glob(images_pattern))
+    transforms = get_patch_transforms(config)
+    dataset = Dataset(data=images, transform=transforms)
+    val_size = len(dataset) // 5
+    train_dataset, val_dataset = torch.utils.data.random_split(dataset, [len(dataset) - val_size, val_size])
+    return train_dataset, val_dataset
 
-# evaluate model and save results
+def prepare_batch(batch_data, device=None, non_blocking=False):
+    t = Compose([
+        Lambda(lambda t: (t * 2) - 1)
+    ])
+    return t(batch_data.permute(0, 1, 4, 2, 3).to(device=device, non_blocking=non_blocking))
+
+@torch.no_grad()
+def generate(n, model, config, noise_scheduler, device):
+    gen_dir = os.path.join(config.output_dir, "generated_examples")
+    os.makedirs(gen_dir, exist_ok=True)
+
+    patch_size = (config.scan_depth, 64, 64)
+    full_size = (config.scan_depth, config.image_size, config.image_size)
+    coords = get_patch_coords(full_size, patch_size, overlap=64)
+
+    for i in range(n):
+        print(f"Generating: {i + 1}/{n} scan")
+        generator = torch.Generator(device=device).manual_seed(config.seed + i)
+        generated_patches = []
+
+        for (z, y, x) in tqdm(coords, desc="Patches"):
+            noise = torch.randn((1, 1, *patch_size), generator=generator, device=device)
+            for t in noise_scheduler.timesteps:
+                model_output = model(noise, t).sample
+                noise = noise_scheduler.step(model_output, t, noise, generator=generator).prev_sample
+            patch = (noise / 2 + 0.5).clamp(0, 1).cpu().squeeze(0)
+            generated_patches.append(patch)
+
+        volume = stitch_patches(generated_patches, coords, full_size, patch_size)
+        volume_np = volume.squeeze(0).permute(1, 2, 0).numpy()
+
+        fig = plt.figure(figsize=(15, 15))
+        _ = matshow3d(volume=volume_np, fig=fig, every_n=1, frame_dim=-1, cmap="gray")
+        fig.savefig(f"{gen_dir}/{i+1}.png")
+        plt.close(fig)
+
 @torch.no_grad()
 def evaluate(model, config, epoch, noise_scheduler, device):
     generator = torch.Generator(device=device)
     generator.manual_seed(config.seed)
-    image_shape = (config.batch_size, 1, config.scan_depth,
-                config.image_size, config.image_size)
+    image_shape = (config.batch_size, 1, config.scan_depth, config.image_size, config.image_size)
     image = torch.randn(image_shape, generator=generator, device=device).to(device)
-    # t: num_train_timesteps ... 0 (1000, 999, ..., 0)
     for t in tqdm(noise_scheduler.timesteps):
-        # 1. predict noise model_output
         model_output = model(image, t).sample
-        # 2. compute previous image: x_t -> x_t-1 until x_0 - a generated clean image
         image = noise_scheduler.step(model_output, t, image, generator=generator).prev_sample
     image = (image / 2 + 0.5).clamp(0, 1)
-    image = image.cpu().permute(0, 1, 3, 4, 2).reshape(config.batch_size,
-                                                    config.image_size, config.image_size, config.scan_depth).numpy()
+    image = image.cpu().permute(0, 1, 3, 4, 2).reshape(config.batch_size, config.image_size, config.image_size, config.scan_depth).numpy()
     fig = plt.figure(figsize=(15, 15))
-    _ = matshow3d(
-        volume=image,
-        fig=fig,
-        every_n=1,
-        frame_dim=-1,
-        cmap="gray",
-    )
+    _ = matshow3d(volume=image, fig=fig, every_n=1, frame_dim=-1, cmap="gray")
     test_dir = os.path.join(config.output_dir, 'samples')
     os.makedirs(test_dir, exist_ok=True)
     fig.savefig(f"{test_dir}/{epoch:04d}.png")
     plt.close(fig)
 
-# generate final n examples
-@torch.no_grad()
-def generate(n, model, config, noise_scheduler, device):
-    gen_dir = os.path.join(config.output_dir, "generated_examples")
-    os.makedirs(gen_dir, exist_ok=True)
-    for i in range(n):
-        print(f"Generating: {i + 1}/{n} scan")
-        eval_device = device
-        generator = torch.Generator(device=eval_device)
-        print(f"seed: {generator.seed()} {generator.initial_seed()}")
-        image_shape = (config.batch_size, 1, config.scan_depth,
-                       config.image_size, config.image_size)
-        image = torch.randn(image_shape, generator=generator,
-                            device=eval_device).to(eval_device)
-        for t in tqdm(noise_scheduler.timesteps):
-            model_output = model.to(eval_device)(image, t).sample
-            image = noise_scheduler.step(
-                model_output, t, image, generator=generator).prev_sample
-
-        image = (image / 2 + 0.5).clamp(0, 1)
-        image = image.cpu().permute(0, 1, 3, 4, 2).reshape(config.batch_size,
-                                                           config.image_size, config.image_size, config.scan_depth).numpy()
-        fig = plt.figure(figsize=(15, 15))
-        _ = matshow3d(
-            volume=image,
-            fig=fig,
-            every_n=1,
-            frame_dim=-1,
-            cmap="gray",
-        )
-
-        fig.savefig(f"{gen_dir}/{i+1}.png")
-        plt.close(fig)
-
 def parse_args():
-    parser = argparse.ArgumentParser(description="Training script configuration")
+    parser = argparse.ArgumentParser(description="Patch-based 3D diffusion training")
 
-    parser.add_argument("--data_dir", type=str, required=True, help="Path to data directory")    
-    parser.add_argument("--output_dir", type=str, help="Directory to save output files")
-
-    parser.add_argument("--image_size", type=int, default=256, help="Size of the input image")
-    parser.add_argument("--scan_depth", type=int, default=32)
-    parser.add_argument("--batch_size", type=int, default=1)
+    parser.add_argument("--data_dir", type=str, required=True, help="Path to NIfTI data directory")
+    parser.add_argument("--output_dir", type=str, required=True, help="Directory to save outputs and models")
+    parser.add_argument("--image_size", type=int, default=256, help="XY size of the full volume")
+    parser.add_argument("--scan_depth", type=int, default=32, help="Z depth of the volume")
+    parser.add_argument("--batch_size", type=int, default=1, help="Training batch size")
     parser.add_argument("--num_epochs", type=int, default=4000)
     parser.add_argument("--learning_rate", type=float, default=1e-4)
     parser.add_argument("--lr_warmup_steps", type=int, default=1000)
     parser.add_argument("--save_image_epochs", type=int, default=100)
     parser.add_argument("--save_model_epochs", type=int, default=500)
-    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--load_model_from_file", action="store_true", help="Load model from checkpoint")
     parser.add_argument("--checkpoint_path", type=str, default="", help="Path to model checkpoint")
-    parser.add_argument("--logging_dir", type=str, default=None, help="Where to save logs (default: output_dir/logs)")
-    return parser.parse_args()
-    
+    parser.add_argument("--logging_dir", type=str, default=None, help="Optional tensorboard logging dir")
 
+    return parser.parse_args()
 
 def main():
     args = parse_args()

@@ -1,5 +1,6 @@
 pdf/build
 pdf/main.synctex.gz
 notes
-ct_256
+ct_*/*
 script/__pycache__/
+diff_mod_out/
