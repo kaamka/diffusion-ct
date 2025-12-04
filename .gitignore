@@ -4,3 +4,4 @@ notes
 ct_*/*
 script/__pycache__/
 diff_mod_out/
+diff_model_gen/*
