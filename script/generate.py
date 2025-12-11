@@ -8,7 +8,6 @@ from diffusers import DDPMScheduler
 from UNet3D_2D import UNet3DModel
 import matplotlib.pyplot as plt
 from monai.visualize import matshow3d
-from data_utils import window_scale_intensity_range, inverse_scale_intensity_range
 
 
 
@@ -74,26 +73,8 @@ def generate_sample(model, scheduler, image_size, scan_depth, device, seed=None)
 
     image = (image / 2 + 0.5).clamp(0, 1)
     image = image.cpu().numpy()[0, 0]
-    image = np.transpose(image, (1, 2, 0)) # (H, W, D)
     return image  # shape (H, W, D)
 
-
-# def generate_sample(model, scheduler, image_size, scan_depth, device, seed=None):
-#     generator = torch.Generator(device=device)
-#     if seed is not None:
-#         generator.manual_seed(seed)
-
-#     image_shape = (1, 1, scan_depth, image_size, image_size)
-#     image = torch.randn(image_shape, generator=generator, device=device)
-
-#     for t in tqdm(scheduler.timesteps, desc="Denoising"):
-#         with torch.no_grad():
-#             model_output = model(image, t)
-#         image = scheduler.step(model_output, t, image, generator=generator).prev_sample
-
-#     image = (image / 2 + 0.5).clamp(0, 1)
-#     image = image.cpu().numpy()[0, 0]
-#     return image  # shape (D, H, W)
 
 
 
@@ -103,11 +84,52 @@ def save_png(volume, out_path):
     fig.savefig(out_path)
     plt.close(fig)
 
+def save_nifti(volume, out_path, spacing=(1.0, 1.0, 2.5)):
+    """
+    Save CT volume to NIfTI in correct RAS orientation with fixed voxel spacing.
 
-def save_nifti(volume, out_path):
-    affine = np.eye(4)
-    img = nib.Nifti1Image(volume.astype(np.float32), affine)
+    volume: numpy array (H,W,D) or (D,H,W)
+    spacing: tuple -> (sx, sy, sz) in mm
+    """
+
+    vol = np.asarray(volume).astype(np.float32)
+
+    vol = np.transpose(vol, (1, 2, 0)) # transform to (H, W, D)
+
+    H, W, D = vol.shape
+    sx, sy, sz = spacing
+
+    # --- RAS affine ---
+    # Standard RAS:
+    # X grows left→right
+    # Y grows posterior→anterior
+    # Z grows inferior→superior
+
+    affine = np.array([
+        [ sx,  0,  0,  0],  
+        [  0, sy,  0,  0],
+        [  0,  0, sz,  0],
+        [  0,  0,  0,  1],
+    ], dtype=np.float32)
+
+    # Create header
+    header = nib.Nifti1Header()
+    header.set_data_dtype(np.float32)
+    header["pixdim"][1:4] = [sx, sy, sz]     # voxel spacing
+    header["sform_code"] = 1                 # aligned
+    header["qform_code"] = 1                 # aligned
+
+    # Set sform & qform matrices
+    img = nib.Nifti1Image(vol, affine=affine, header=header)
+    img.set_sform(affine, code=1)
+    img.set_qform(affine, code=1)
+
     nib.save(img, out_path)
+
+# def save_nifti(volume, out_path):
+#     affine = np.eye(4)
+#     img = nib.Nifti1Image(volume.astype(np.float32), affine)
+#     nib.save(img, out_path)
 
 
 def main():
@@ -115,7 +137,7 @@ def main():
     parser.add_argument("--model_path", type=str, required=True, help="Path to model checkpoint")
     parser.add_argument("--output_dir", type=str, required=True, help="Directory to save generated scans")
     parser.add_argument("--num_samples", type=int, default=1, help="Number of samples to generate")
-    parser.add_argument("--image_size", type=int, default=512)
+    parser.add_argument("--image_size", type=int, default=400)
     parser.add_argument("--scan_depth", type=int, default=32)
     parser.add_argument("--seed", type=int, default=None)
 
@@ -135,8 +157,8 @@ def main():
         print(f"Sample {i+1}/{args.num_samples}")
         volume = generate_sample(model, scheduler, args.image_size, args.scan_depth, device, seed=args.seed)
 
-        png_path = os.path.join(args.output_dir, f"sample_2_{i+1}.png")
-        nii_path = os.path.join(args.output_dir, f"sample_2_{i+1}.nii.gz")
+        png_path = os.path.join(args.output_dir, f"sample_5_{i+1}.png")
+        nii_path = os.path.join(args.output_dir, f"sample_5_{i+1}.nii.gz")
 
         save_png(volume, png_path)
         save_nifti(volume, nii_path)

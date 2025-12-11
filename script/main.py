@@ -38,6 +38,7 @@ warnings.filterwarnings('ignore', category=UserWarning, message='TypedStorage is
 
 import os
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:64"
+from generate import load_model
 
 @dataclass
 class TrainingConfig:
@@ -52,35 +53,42 @@ class TrainingConfig:
     save_model_epochs : int
     output_dir: str
     seed: int
-    load_model_from_file: bool
+    # load_model_from_file: bool
     checkpoint_path: str
     logging_dir = str
+    first_epoch: int
 
 
-# @dataclass
-# class TrainingConfig:
-#     data_dir: str
-#     # data_dir = "/sekhemet/scratch/kamkal/Augm/data_v2_prostate_32slices_34_plus_100/"
-#     # image_size = 256
-#     image_size: int
-#     scan_depth = 32
-#     batch_size = 1
-#     num_epochs = 4000
-#     learning_rate = 1e-4
-#     lr_warmup_steps = 1000
-#     save_image_epochs = 100
-#     save_model_epochs = 500
-#     output_dir = "ct_256"
-#     seed = 0
-#     load_model_from_file = False
-#     checkpoint_path = ""
-#     logging_dir = f"{output_dir}/logs"
+def save_checkpoint(path, model, optimizer, lr_scheduler, noise_scheduler, epoch, global_step):
+    ckpt = {
+        "model": model.state_dict(),
+        "optimizer": optimizer.state_dict(),
+        "lr_scheduler": lr_scheduler.state_dict(),
+        "noise_scheduler": noise_scheduler.state_dict(),
+        "epoch": epoch,
+        "global_step": global_step,
+    }
+    torch.save(ckpt, path)
+    print(f"[CHECKPOINT SAVED] → {path}")
 
 
+def load_checkpoint(path, model, optimizer, lr_scheduler, noise_scheduler):
+    ckpt = torch.load(path, map_location="cpu")
+
+    model.load_state_dict(ckpt["model"])
+    optimizer.load_state_dict(ckpt["optimizer"])
+    lr_scheduler.load_state_dict(ckpt["lr_scheduler"])
+    noise_scheduler.load_state_dict(ckpt["noise_scheduler"])
+
+    epoch = ckpt["epoch"]
+    global_step = ckpt["global_step"]
+
+    print(f"[CHECKPOINT LOADED] ← {path} (epoch={epoch}, step={global_step})")
+    return epoch, global_step
 
 # evaluate model and save results
 @torch.no_grad()
-def evaluate(model, config, epoch, noise_scheduler, device):
+def evaluate(model, config, epoch, noise_scheduler, device, retrain=""):
     generator = torch.Generator(device=device)
     generator.manual_seed(config.seed)
     image_shape = (config.batch_size, 1, config.scan_depth,
@@ -105,7 +113,7 @@ def evaluate(model, config, epoch, noise_scheduler, device):
     )
     test_dir = os.path.join(config.output_dir, 'samples')
     os.makedirs(test_dir, exist_ok=True)
-    fig.savefig(f"{test_dir}/{epoch:04d}.png")
+    fig.savefig(f"{test_dir}/{retrain}{epoch:04d}.png")
     plt.close(fig)
 
 # generate final n examples
@@ -157,8 +165,9 @@ def parse_args():
     parser.add_argument("--save_image_epochs", type=int, default=100)
     parser.add_argument("--save_model_epochs", type=int, default=500)
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--load_model_from_file", action="store_true", help="Load model from checkpoint")
+    # parser.add_argument("--load_model_from_file", action="store_true", help="Load model from checkpoint")
     parser.add_argument("--checkpoint_path", type=str, default="", help="Path to model checkpoint")
+    parser.add_argument("--first_epoch", type=int, default=0, help="Epoch to start training from")
     parser.add_argument("--logging_dir", type=str, default=None, help="Where to save logs (default: output_dir/logs)")
     return parser.parse_args()
     
@@ -183,8 +192,9 @@ def main():
         save_model_epochs=args.save_model_epochs,
         output_dir=args.output_dir,
         seed=args.seed,
-        load_model_from_file=args.load_model_from_file,
+        # load_model_from_file=args.load_model_from_file,
         checkpoint_path=args.checkpoint_path,
+        first_epoch=args.first_epoch,
         #logging_dir=args.logging_dir
         #logging_dir=f"{args.output_dir}/logs" if args.logging_dir is None else args.logging_dir
     )
@@ -196,6 +206,7 @@ def main():
         project_dir=config.output_dir,
         logging_dir=logging_dir
     )
+
 
     kwargs = InitProcessGroupKwargs(timeout=timedelta(seconds=7200))  # a big number for high resolution or big dataset
     accelerator = Accelerator(
@@ -253,8 +264,14 @@ def main():
     with open(config.output_dir + "/config.txt", 'w') as fp:
         fp.write(f"{model.block_out_channels}\n{model.down_block_types}\n{model.up_block_types}\n")
 
-    if config.load_model_from_file:
-        model.load_state_dict(torch.load(config.output_dir + '/model'))
+    # if config.load_model_from_file:
+    #     model.load_state_dict(torch.load(config.output_dir + '/model'))
+
+    if config.checkpoint_path != "":
+        # Load model checkpoint
+        #state_dict = torch.load(config.checkpoint_path)
+        model =  load_model(config.checkpoint_path, config.image_size, config.scan_depth, device=accelerator.device)
+        logger.info(f"Loaded model from checkpoint: {config.checkpoint_path}")
 
     # initialize noise scheduler
     noise_scheduler = DDPMScheduler(num_train_timesteps=1500)
@@ -320,10 +337,12 @@ def main():
     logger.info(f"  Num Epochs = {config.num_epochs}")
 
     global_step = 0
-    first_epoch = 0
+    first_epoch = config.first_epoch
+    retrain = "" if first_epoch == 0 else "retrain_"
+    logger.info(f"  Starting {retrain}training from epoch = {first_epoch}")
 
     # train the model
-    for epoch in range(first_epoch, config.num_epochs):
+    for epoch in range(first_epoch, first_epoch+config.num_epochs):
         model.train()
         
         progress_bar = tqdm(total=len(train_loader), disable=not accelerator.is_local_main_process)
@@ -394,10 +413,10 @@ def main():
         if accelerator.is_main_process:
             if epoch == config.num_epochs - 1 or (epoch + 1) % config.save_image_epochs == 0:
                 logger.info(f"Model evaluation: ")
-                evaluate(model, config, epoch, noise_scheduler, accelerator.device)
+                evaluate(model, config, epoch, noise_scheduler, accelerator.device, retrain=retrain)
 
             if epoch == config.num_epochs - 1 or (epoch + 1) % config.save_model_epochs == 0:
-                torch.save(model.state_dict(), config.output_dir + f'/models/model_{epoch}')
+                torch.save(model.state_dict(), config.output_dir + f'/models/{retrain}model_{epoch}')
 
         accelerator.wait_for_everyone()
 
