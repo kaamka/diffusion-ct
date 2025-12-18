@@ -12,7 +12,6 @@ from datetime import timedelta
 from pathlib import Path
 import os
 import argparse
-
 import torch
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
@@ -113,7 +112,7 @@ def save_checkpoint(path, model, optimizer, lr_scheduler, noise_scheduler,
 
 def load_checkpoint(path, model, optimizer, lr_scheduler, noise_scheduler, *, device, accelerator=None):
 
-    ckpt = torch.load(path, map_location=device)
+    ckpt = torch.load(path, map_location=device, weights_only=False)
 
 
     model.load_state_dict(ckpt["model"])
